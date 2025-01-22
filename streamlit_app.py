@@ -1,38 +1,69 @@
 import streamlit as st
 import requests
 import os
+from typing import Optional
 
-class OllamaHelper:
-    def __init__(self, base_url='http://localhost:11434'):
-        self.base_url = base_url
+class LLMHelper:
+    def __init__(self):
+        # Get API configuration from environment variables
+        self.api_key = os.getenv('OPENAI_API_KEY')
+        self.api_base = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1')
+        self.model = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
 
-    def _generate(self, prompt):
+    def _generate(self, prompt: str) -> Optional[str]:
+        """Generic method to generate responses using the configured LLM API."""
         try:
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': self.model,
+                'messages': [
+                    {'role': 'system', 'content': 'You are a helpful programming assistant.'},
+                    {'role': 'user', 'content': prompt}
+                ],
+                'temperature': 0.7
+            }
+
             response = requests.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": "codellama",
-                    "prompt": prompt,
-                    "stream": False
-                }
+                f"{self.api_base}/chat/completions",
+                headers=headers,
+                json=data
             )
             response.raise_for_status()
-            return response.json()['response']
+            return response.json()['choices'][0]['message']['content']
+            
         except requests.RequestException as e:
-            st.error(f"Error communicating with Ollama: {str(e)}")
+            st.error(f"Error communicating with LLM API: {str(e)}")
+            if not self.api_key:
+                st.error("API key not configured. Please set the OPENAI_API_KEY environment variable.")
             return None
 
-    def generate_code(self, prompt):
-        return self._generate(f"Generate code for: {prompt}")
+    def generate_code(self, prompt: str) -> Optional[str]:
+        """Generate code based on the prompt."""
+        return self._generate(
+            f"Generate code for the following request. Provide only the code without explanations:\n\n{prompt}"
+        )
 
-    def analyze_code(self, code):
-        return self._generate(f"Analyze the following code and suggest improvements:\n\n{code}")
+    def analyze_code(self, code: str) -> Optional[str]:
+        """Analyze code and suggest improvements."""
+        return self._generate(
+            f"Analyze the following code and suggest improvements. Be specific and detailed:\n\n{code}"
+        )
 
-    def security_check(self, code):
-        return self._generate(f"Perform a security check on the following code and identify potential issues:\n\n{code}")
+    def security_check(self, code: str) -> Optional[str]:
+        """Check code for security issues."""
+        return self._generate(
+            f"Perform a security analysis on the following code. Identify potential security issues and suggest fixes:\n\n{code}"
+        )
 
-    def generate_tests(self, code):
-        return self._generate(f"Generate unit tests for the following code:\n\n{code}")
+    def generate_tests(self, code: str) -> Optional[str]:
+        """Generate unit tests for the given code."""
+        return self._generate(
+            f"Generate comprehensive unit tests for the following code. Include test cases for edge cases:\n\n{code}"
+        )
 
 # Page configuration
 st.set_page_config(
@@ -41,9 +72,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Ollama helper
-ollama_url = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
-ollama = OllamaHelper(ollama_url)
+# Initialize LLM helper
+@st.cache_resource
+def get_llm_helper():
+    return LLMHelper()
+
+llm_helper = get_llm_helper()
 
 # Title and description
 st.title("AI Code Assistant")
@@ -67,12 +101,16 @@ code_input = st.text_area(
     key="code_input"
 )
 
+# Check API key configuration
+if not os.getenv('OPENAI_API_KEY'):
+    st.warning("⚠️ OpenAI API key not configured. Please set the OPENAI_API_KEY environment variable.")
+
 # Generate Code tab
 with tab1:
     if st.button("Generate Code", key="generate"):
         if code_input:
             with st.spinner("Generating code..."):
-                result = ollama.generate_code(code_input)
+                result = llm_helper.generate_code(code_input)
                 if result:
                     st.code(result, language="python")
         else:
@@ -83,7 +121,7 @@ with tab2:
     if st.button("Analyze Code", key="analyze"):
         if code_input:
             with st.spinner("Analyzing code..."):
-                result = ollama.analyze_code(code_input)
+                result = llm_helper.analyze_code(code_input)
                 if result:
                     st.markdown("### Analysis Results")
                     st.markdown(result)
@@ -95,7 +133,7 @@ with tab3:
     if st.button("Check Security", key="security"):
         if code_input:
             with st.spinner("Checking security..."):
-                result = ollama.security_check(code_input)
+                result = llm_helper.security_check(code_input)
                 if result:
                     st.markdown("### Security Analysis")
                     st.markdown(result)
@@ -107,7 +145,7 @@ with tab4:
     if st.button("Generate Tests", key="tests"):
         if code_input:
             with st.spinner("Generating tests..."):
-                result = ollama.generate_tests(code_input)
+                result = llm_helper.generate_tests(code_input)
                 if result:
                     st.markdown("### Generated Tests")
                     st.code(result, language="python")
@@ -116,4 +154,4 @@ with tab4:
 
 # Add footer
 st.markdown("---")
-st.markdown("Built with Streamlit and Ollama")
+st.markdown("Built with Streamlit and OpenAI")
